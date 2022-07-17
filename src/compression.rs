@@ -103,7 +103,9 @@ struct BlocksMerger<T : Iterator<Item = u8>> {
     compressor: Compressor<T>,
 
     current_block: Option<Block>,
-    block_index: u8
+    block_index: u8,
+
+    buf: VecDeque<u8>
 }
 
 impl<T : Iterator<Item = u8>> BlocksMerger<T> {
@@ -111,17 +113,62 @@ impl<T : Iterator<Item = u8>> BlocksMerger<T> {
         return BlocksMerger {
             compressor,
             current_block: None,
-            block_index: 0
+            block_index: 0,
+            buf: VecDeque::new()
         }
     }
 
+    fn get_next_block(&mut self) -> Option<u8> {
+        let mut block_header = self.get_next_byte()?;
+        let mut block = Block::from_header(block_header);
+        self.current_block = Some(block);
+        
+        if block.bytes_length == 1 {
+            block.matched_bits = 0;
+            while let Some(next_block) = self.fetch_next_block() {
+                if next_block.bytes_length != 1 || block.bytes_length > 32 {
+                    // push block header into the buffer to proccess it later
+                    self.buf.push_back(next_block.get_header());
+                    break;
+                }
+                /* besides header byte zero block will contain 2 more bytes:
+                 one for 7-bit prefix and another for 1-bit byte
+                 because we are merging we need prefix byte
+                 but because theay equel we can just remove the last on in the buffer */
+                _ = self.buf.pop_back();
+                block.bytes_length += 1;
+            }
 
-    // TODO: add actual block compression
-    fn fetch_next_block(&mut self) -> Option<u8> {
-        let block_header = self.compressor.next()?;
-        self.current_block = Some(Block::from_header(block_header));
+            self.current_block = Some(block);
+            block_header = block.get_header();
+        }
+        
         self.block_index = 0;
         return Some(block_header);
+    }
+
+    /* Note:
+        This method do not take buffer into account.
+        So if it's not empty it might work incorrectly.
+        It's ok now cause it's only use in the case
+        when buffer is empty */
+    fn fetch_next_block(&mut self) -> Option<Block> {
+        if let Some(block) = self.current_block {
+            // read current block bytes into buffer
+            for _ in 0..=block.bytes_length {
+                let byte = self.compressor.next()?;
+                self.buf.push_back(byte);
+            }
+        }
+        let block_header = self.compressor.next()?;
+        return Some(Block::from_header(block_header));
+    }
+
+    fn get_next_byte(&mut self) -> Option<u8> {
+        if self.buf.len() > 0 {
+            return self.buf.pop_front();
+        }
+        return self.compressor.next();
     }
 }
 
@@ -130,7 +177,7 @@ impl<T : Iterator<Item = u8>> Iterator for BlocksMerger<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.current_block {
-            None => self.fetch_next_block(),
+            None => self.get_next_block(),
             Some(block) => {
                 // checking if this is the last byte in the block
                 // starting from 0 and including 1 block metadata byte (header is emitted when block is fetched)
@@ -139,7 +186,7 @@ impl<T : Iterator<Item = u8>> Iterator for BlocksMerger<T> {
                 }
 
                 self.block_index += 1;
-                return self.compressor.next();
+                return self.get_next_byte();
             }
         }
     }
