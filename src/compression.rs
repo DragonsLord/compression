@@ -1,9 +1,9 @@
-use std::{error, fs, path, io::Read, collections::VecDeque};
+use std::{error, fs, io::Read, collections::VecDeque, path};
 
 pub fn compress(filepath: &str) -> Result<impl Iterator<Item = u8>, Box<dyn error::Error>> {
     let path = path::Path::new(filepath);
     let file = fs::File::open(path)?;
-    return Ok(Compressor::new(file.bytes().flatten()));
+    return Ok(BlocksMerger::new(Compressor::new(file.bytes().flatten())));
 }
 
 struct Compressor<T : Iterator<Item = u8>>
@@ -38,10 +38,9 @@ impl<T : Iterator<Item = u8>> Compressor<T> {
         let mut candidates: Vec<Block> = vec![];
 
         let mut prev_byte = self.buff[0];
-        let mut current = Block { bytes_length: 1, bits_compressed: 0, matched_bits: 7 };
+        let mut current = Block { bytes_length: 1, bits_compressed: 7, matched_bits: 7 };
 
-        for byte in self.buff.iter() {
-            // TODO: match_bits should just return length
+        for byte in self.buff.iter().skip(1) {
             let matched_bits = match_bits(prev_byte, *byte, current.matched_bits);
             let bytes_length = current.bytes_length + 1;
             let bits_compressed = matched_bits * bytes_length;
@@ -49,12 +48,7 @@ impl<T : Iterator<Item = u8>> Compressor<T> {
             prev_byte = *byte;
 
             if matched_bits == 0 {
-                if current.matched_bits > 0 && current.bytes_length > 1 {
-                    // if we have non zero candidates we should break on 0 match
-                    break;
-                }
-                current.bytes_length += 1;
-                continue;
+                break;
             }
 
             if bits_compressed < current.bits_compressed {
@@ -83,7 +77,7 @@ impl<T : Iterator<Item = u8>> Iterator for Compressor<T> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bytes_in_block_left > 1 {
+        if self.bytes_in_block_left > 0 {
             self.bytes_in_block_left -= 1;
             return Some(self.buff.pop_front().expect("iterating over non empty queue"));
         }
@@ -105,18 +99,74 @@ impl<T : Iterator<Item = u8>> Iterator for Compressor<T> {
     }
 }
 
+struct BlocksMerger<T : Iterator<Item = u8>> {
+    compressor: Compressor<T>,
+
+    current_block: Option<Block>,
+    block_index: u8
+}
+
+impl<T : Iterator<Item = u8>> BlocksMerger<T> {
+    fn new(compressor: Compressor<T>) -> BlocksMerger<T> {
+        return BlocksMerger {
+            compressor,
+            current_block: None,
+            block_index: 0
+        }
+    }
+
+
+    // TODO: add actual block compression
+    fn fetch_next_block(&mut self) -> Option<u8> {
+        let block_header = self.compressor.next()?;
+        self.current_block = Some(Block::from_header(block_header));
+        self.block_index = 0;
+        return Some(block_header);
+    }
+}
+
+impl<T : Iterator<Item = u8>> Iterator for BlocksMerger<T> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.current_block {
+            None => self.fetch_next_block(),
+            Some(block) => {
+                // checking if this is the last byte in the block
+                // starting from 0 and including 1 block metadata byte (header is emitted when block is fetched)
+                if self.block_index == block.bytes_length {
+                    self.current_block = None;
+                }
+
+                self.block_index += 1;
+                return self.compressor.next();
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Block {
     bytes_length: u8,
-    bits_compressed: u8,
-    matched_bits: u8
+    matched_bits: u8,
+    bits_compressed: u8 // TODO: consider computing it when it's needed
 }
 
 impl Block {
     fn get_header(&self) -> u8 {
         // first 3 bits is a but prefix length
-        // rest 5 bits is an amount of bytes
-        return self.matched_bits.checked_shl(5).expect("matched_bits less then 8") + self.bytes_length;
+        // rest 5 bits is an amount of bytes (minus one to exlude zero value)
+        return self.matched_bits.checked_shl(5).expect("matched_bits less then 8") + (self.bytes_length - 1);
+    }
+
+    fn from_header(header: u8) -> Block {
+        let bytes_length = (header & 31) + 1;
+        let matched_bits = (header & 224) >> 5;
+        Block {
+            bytes_length,
+            matched_bits, 
+            bits_compressed: matched_bits * bytes_length
+        }
     }
 }
 
