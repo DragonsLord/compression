@@ -1,9 +1,11 @@
 use std::{error, fs, io::Read, collections::VecDeque, path};
 
+const BIT_MASKS: [u8; 9] = [0, 1, 3, 7, 15, 31, 63, 127, 255];
+
 pub fn compress(filepath: &str) -> Result<impl Iterator<Item = u8>, Box<dyn error::Error>> {
     let path = path::Path::new(filepath);
     let file = fs::File::open(path)?;
-    return Ok(BlocksMerger::new(Compressor::new(file.bytes().flatten())));
+    return Ok(BlocksCompressor::new(BlocksMerger::new(Compressor::new(file.bytes().flatten()))));
 }
 
 struct Compressor<T : Iterator<Item = u8>>
@@ -89,7 +91,7 @@ impl<T : Iterator<Item = u8>> Iterator for Compressor<T> {
         }
 
         let block = self.find_best_block();
-        println!("\n{:?}", block);
+        // println!("\n{:?}", block);
         // pushing first byte clone to the front to serve as a block prefix data
         self.buff.push_front(self.buff[0]);
         // plus one for block prefix
@@ -201,7 +203,7 @@ struct Block {
 
 impl Block {
     fn get_header(&self) -> u8 {
-        // first 3 bits is a but prefix length
+        // first 3 bits is a bit prefix length
         // rest 5 bits is an amount of bytes (minus one to exlude zero value)
         return self.matched_bits.checked_shl(5).expect("matched_bits less then 8") + (self.bytes_length - 1);
     }
@@ -231,6 +233,129 @@ fn match_bits(left: u8, right: u8, length: u8) -> u8 {
     }
 
     return 8 - bits_left;
+}
+
+
+struct BlocksCompressor<T : Iterator<Item = u8>> {
+    elements: T,
+
+    block: Option<Block>,
+    byte: u8,
+    current_bit: u8,
+    current_byte: u8
+}
+
+impl<T : Iterator<Item = u8>>  BlocksCompressor<T> { 
+    fn new(elements: T) -> BlocksCompressor<T> {
+        return BlocksCompressor {
+            elements,
+            block: None,
+            byte: 0,
+            current_bit: 8,
+            current_byte: 0
+        }
+    }
+
+    fn fill_byte(&mut self) -> Option<u8> {
+        while let Some(unit) = self.elements.next() {
+            print!("{:#010b}\t| ", unit);
+            let result: Option<u8>;
+            match self.block {
+                None => {
+                    self.block = Some(Block::from_header(unit));
+                    print!("block\t| ");
+                    result = self.write_bits(unit, 8);
+                },
+                Some(block) => {
+                    if self.current_byte == 0 {
+                        print!("mask\t| ");
+                        // first unit in the block is a bit mask
+                        result = self.write_bits(unit.overflowing_shr((8 - block.matched_bits).into()).0, block.matched_bits);
+                    }
+                    else {
+                        print!("value\t| ");
+                        result = self.write_bits(unit, 8 - block.matched_bits)
+                    }
+                    // checking if this is the last byte in the block
+                    // starting from 0 and including 1 block metadata byte (header is emitted when block is fetched)
+                    if self.current_byte == block.bytes_length {
+                        self.block = None;
+                        self.current_byte = 0;
+                    }
+                    else {
+                        self.current_byte += 1;
+                    }
+                }
+            }
+
+            if let Some(byte) = result {
+                return Some(byte);
+            }
+        }
+
+        if self.current_bit < 8 {
+            // this is the last bits that do not fill full byte
+            return Some(self.byte);
+        }
+
+        return None;
+    }
+
+    // singnificant bits should be at the end of the byte
+    fn write_bits(&mut self, bits: u8, bits_count: u8) -> Option<u8> {
+        if bits_count == 0 {
+            println!("writing 0 bits");
+            return None;
+        }
+        // if bits_count > 8 {
+        //     unreachable!()
+        // }
+        let value = BIT_MASKS[bits_count as usize] & bits;
+        print!("writing {} bits (curr_pos = {}) -> {:#010b} + {:#010b} ", bits_count, self.current_bit, self.byte, value);
+
+        if self.current_bit == bits_count {
+            self.byte += value;
+            self.current_bit = 8;
+            
+            println!("= {:#010b}", self.byte);
+            let full_byte = self.byte;
+            self.byte = 0;
+            return Some(full_byte);
+        }
+
+        if self.current_bit > bits_count {
+            // all bits will fit into current byte
+            self.byte += value << (self.current_bit - bits_count);
+            self.current_bit -= bits_count;
+
+            println!("= {:#010b}", self.byte);
+            return None;
+        }
+
+        {
+            let overflow_bytes_count = bits_count - self.current_bit;
+            let partial_val = value >> overflow_bytes_count;
+            // print!("(shifted {:#010b}) ", partial_val);
+            self.byte += partial_val;
+            let full_byte = self.byte;
+            println!(" = {:#010b}", self.byte);
+            self.byte = 0;
+
+            // writing leftover bits to the new byte
+            self.current_bit = 8 - overflow_bytes_count;
+            self.byte = value << self.current_bit;
+
+            return Some(full_byte);
+        }
+    }
+}
+
+impl<T : Iterator<Item = u8>> Iterator for BlocksCompressor<T> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        return self.fill_byte();
+    }
 }
 
 #[cfg(test)]
