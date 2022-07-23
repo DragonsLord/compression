@@ -1,8 +1,8 @@
 use std::{env, error, process};
 
-use compression::compress;
-
 pub mod compression;
+
+use compression::compress;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -11,10 +11,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         process::exit(1);
     });
 
+    // let filepath = "assets/pic.jpg";
+
     let file_bytes = compress(filepath)?;
 
     for b in file_bytes {
-        print!(" {}", b);
+        println!("{}", b);
     }
 
     return Ok(());
