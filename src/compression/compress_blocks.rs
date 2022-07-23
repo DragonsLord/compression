@@ -64,6 +64,7 @@ impl<T : Iterator<Item = u8>>  CompressedBlocksIter<T> {
         }
 
         if self.current_bit < 8 {
+            self.current_bit = 8;
             // this is the last bits that do not fill full byte
             return Some(self.byte);
         }
@@ -124,6 +125,6 @@ impl<T : Iterator<Item = u8>> Iterator for CompressedBlocksIter<T> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        return self.fill_byte();
+        self.fill_byte()
     }
 }

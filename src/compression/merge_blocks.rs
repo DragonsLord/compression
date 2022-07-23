@@ -14,6 +14,7 @@ pub struct BlocksMergerIter<T : Iterator<Item = u8>> {
     buf: VecDeque<u8>
 }
 
+//TODO: This is broken. Need to refactor
 impl<T : Iterator<Item = u8>> BlocksMergerIter<T> {
     fn new(compressor: CompressionBlockIter<T>) -> BlocksMergerIter<T> {
         return BlocksMergerIter {
@@ -33,15 +34,17 @@ impl<T : Iterator<Item = u8>> BlocksMergerIter<T> {
             block.matched_bits = 0;
             while let Some(next_block) = self.fetch_next_block() {
                 if next_block.bytes_length != 1 || block.bytes_length > 32 {
-                    // push block header into the buffer to proccess it later
+                    // push block header and zero mask into the buffer to proccess it later
                     self.buf.push_back(next_block.get_byte());
                     break;
                 }
-                /* besides header byte zero block will contain 2 more bytes:
-                 one for 7-bit prefix and another for 1-bit byte
-                 because we are merging we need prefix byte
-                 but because theay equel we can just remove the last on in the buffer */
-                _ = self.buf.pop_back();
+                if block.bytes_length > 1 {
+                    /* besides header byte zero block will contain 2 more bytes:
+                     one for 7-bit prefix and another for 1-bit byte
+                     because we are merging we need prefix byte
+                     but because theay equel we can just remove the last on in the buffer */
+                    _ = self.buf.pop_back();
+                }
                 block.bytes_length += 1;
             }
 
