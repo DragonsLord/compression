@@ -2,7 +2,7 @@ use std::{env, error, process};
 
 pub mod compression;
 
-use compression::compress;
+use compression::compress_file;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     // let filepath = "assets/pic.jpg";
 
-    let file_bytes = compress(filepath)?;
+    let file_bytes = compress_file(filepath)?;
 
     for b in file_bytes {
         println!("{}", b);
