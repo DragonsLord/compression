@@ -28,22 +28,22 @@ impl<T : Iterator<Item = u8>>  CompressedBlocksIter<T> {
 
     fn fill_byte(&mut self) -> Option<u8> {
         while let Some(unit) = self.elements.next() {
-            print!("{:#010b}\t| ", unit);
+            // print!("{:#010b}\t| ", unit);
             let result: Option<u8>;
             match self.block {
                 None => {
                     self.block = Some(BlockHeader::from_byte(unit));
-                    print!("block\t| ");
+                    // print!("block\t| ");
                     result = self.write_bits(unit, 8);
                 },
                 Some(block) => {
                     if self.current_byte == 0 {
-                        print!("mask\t| ");
+                        // print!("mask\t| ");
                         // first unit in the block is a bit mask
                         result = self.write_bits(unit.overflowing_shr((8 - block.matched_bits).into()).0, block.matched_bits);
                     }
                     else {
-                        print!("value\t| ");
+                        // print!("value\t| ");
                         result = self.write_bits(unit, 8 - block.matched_bits)
                     }
                     // checking if this is the last byte in the block
@@ -75,20 +75,20 @@ impl<T : Iterator<Item = u8>>  CompressedBlocksIter<T> {
     // singnificant bits should be at the end of the byte
     fn write_bits(&mut self, bits: u8, bits_count: u8) -> Option<u8> {
         if bits_count == 0 {
-            println!("writing 0 bits");
+            // println!("writing 0 bits");
             return None;
         }
         // if bits_count > 8 {
         //     unreachable!()
         // }
         let value = BIT_MASKS[bits_count as usize] & bits;
-        print!("writing {} bits (curr_pos = {}) -> {:#010b} + {:#010b} ", bits_count, self.current_bit, self.byte, value);
+        // print!("writing {} bits (curr_pos = {}) -> {:#010b} + {:#010b} ", bits_count, self.current_bit, self.byte, value);
 
         if self.current_bit == bits_count {
             self.byte += value;
             self.current_bit = 8;
             
-            println!("= {:#010b}", self.byte);
+            // println!("= {:#010b}", self.byte);
             let full_byte = self.byte;
             self.byte = 0;
             return Some(full_byte);
@@ -99,7 +99,7 @@ impl<T : Iterator<Item = u8>>  CompressedBlocksIter<T> {
             self.byte += value << (self.current_bit - bits_count);
             self.current_bit -= bits_count;
 
-            println!("= {:#010b}", self.byte);
+            // println!("= {:#010b}", self.byte);
             return None;
         }
 
@@ -109,7 +109,7 @@ impl<T : Iterator<Item = u8>>  CompressedBlocksIter<T> {
             // print!("(shifted {:#010b}) ", partial_val);
             self.byte += partial_val;
             let full_byte = self.byte;
-            println!(" = {:#010b}", self.byte);
+            // println!(" = {:#010b}", self.byte);
             self.byte = 0;
 
             // writing leftover bits to the new byte

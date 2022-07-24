@@ -44,7 +44,7 @@ impl<T : Iterator<Item = u8>>  DecompressedBlocksIter<T> {
                         self.block_bytes_read = 0;
                     }
                     
-                    println!("byte: {:#010b}", mask + left_bits);
+                    // println!("byte: {:#010b}", mask + left_bits);
                     return Some(mask + left_bits);
                 }
                 else 
@@ -53,7 +53,7 @@ impl<T : Iterator<Item = u8>>  DecompressedBlocksIter<T> {
                     let mask = self.read_bits(block_header.matched_bits).expect("Broken data: could not read mask - no bytes left");
                     // shift mask to the right;
                     self.mask = Some(mask << (8 - block_header.matched_bits));
-                    println!("mask: {:#010b}", self.mask.unwrap())
+                    // println!("mask: {:#010b}", self.mask.unwrap())
                 }
             }
             else
@@ -65,7 +65,7 @@ impl<T : Iterator<Item = u8>>  DecompressedBlocksIter<T> {
                     // no need to read mask for zero block
                     self.mask = Some(0);
                 }
-                println!("block: {:?}", self.current_block)
+                // println!("block: {:?}", self.current_block)
             }
         }
     }
