@@ -14,7 +14,6 @@ pub struct BlocksMergerIter<T : Iterator<Item = u8>> {
     buf: VecDeque<u8>
 }
 
-//TODO: This is broken. Need to refactor
 impl<T : Iterator<Item = u8>> BlocksMergerIter<T> {
     fn new(compressor: CompressionBlockIter<T>) -> BlocksMergerIter<T> {
         return BlocksMergerIter {
@@ -38,18 +37,13 @@ impl<T : Iterator<Item = u8>> BlocksMergerIter<T> {
                     self.buf.push_back(next_block.get_byte());
                     break;
                 }
-                if block.bytes_length > 1 {
-                    /* besides header byte zero block will contain 2 more bytes:
-                     one for 7-bit prefix and another for 1-bit byte
-                     because we are merging we need prefix byte
-                     but because theay equel we can just remove the last on in the buffer */
-                    _ = self.buf.pop_back();
-                }
                 block.bytes_length += 1;
             }
 
             self.current_block = Some(block);
             block_header = block.get_byte();
+            // add empty mask for new merged zero block
+            self.buf.push_front(0);
         }
         
         self.block_index = 0;
@@ -64,9 +58,15 @@ impl<T : Iterator<Item = u8>> BlocksMergerIter<T> {
     fn fetch_next_block(&mut self) -> Option<BlockHeader> {
         if let Some(block) = self.current_block {
             // read current block bytes into buffer
-            for _ in 0..=block.bytes_length {
+            for i in 0..=block.bytes_length {
                 let byte = self.compressor.next()?;
-                self.buf.push_back(byte);
+                /* besides header byte zero block will contain 2 more bytes:
+                    one for 7-bit prefix and another for 1-bit byte
+                    because we are merging we need prefix byte
+                    but because theay equel we can just remove the last on in the buffer */
+                if !(i == 0 && block.bytes_length == 1) {
+                    self.buf.push_back(byte);
+                }
             }
         }
         let block_header = self.compressor.next()?;
