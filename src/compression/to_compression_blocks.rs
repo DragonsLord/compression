@@ -31,25 +31,22 @@ impl<T : Iterator<Item = u8>> CompressionBlockIter<T> {
         }
     }
 
+    // this algorythm mostly creates long zero bit blocks :(
     fn find_best_block(&self) -> BlockHeader {
-        let mut candidates: Vec<BlockHeader> = vec![];
-
-        let mut prev_byte = self.buff[0];
+        let mut current_best: Option<BlockHeader> = None;
         let mut current = BlockHeader { bytes_length: 1, matched_bits: 7 };
 
+        let block_byte_prefix = self.buff[0];
+
         for byte in self.buff.iter().skip(1) {
-            let matched_bits = match_bits(prev_byte, *byte, current.matched_bits);
+            let matched_bits = match_bits(block_byte_prefix, *byte, current.matched_bits);
             let bytes_length = current.bytes_length + 1;
-            let bits_compressed = matched_bits * bytes_length;
-
-            prev_byte = *byte;
-
-            if matched_bits == 0 {
-                break;
-            }
+            let bits_compressed = BlockHeader::calc_compressed_bits(bytes_length, matched_bits);
 
             if bits_compressed < current.get_bits_compressed() {
-                candidates.push(current);
+                if current_best.is_none() || current.get_bits_compressed() > current_best.unwrap().get_bits_compressed() {
+                    current_best = Some(current);
+                }
                 current = BlockHeader { bytes_length, matched_bits }
             }
             else
@@ -59,9 +56,7 @@ impl<T : Iterator<Item = u8>> CompressionBlockIter<T> {
             }
         }
 
-        candidates.push(current);
-
-        return *(candidates.iter().max_by_key(|x| x.get_bits_compressed()).expect("there's always should be at leas one candidate"));
+        return current_best.unwrap_or(current);
     }
 }
 
@@ -90,7 +85,6 @@ impl<T : Iterator<Item = u8>> Iterator for CompressionBlockIter<T> {
         return Some(block.get_byte());
     }
 }
-
 
 fn match_bits(left: u8, right: u8, length: u8) -> u8 {
     let match_result = !(left ^ right);

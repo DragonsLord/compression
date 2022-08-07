@@ -2,24 +2,20 @@ use std::{path, fs, error, io, iter::Flatten};
 
 mod compression_block_header;
 mod to_compression_blocks;
-mod merge_blocks;
 mod compress_blocks;
 mod decompress_blocks;
 
-use to_compression_blocks::to_compression_blocks;
-use merge_blocks::{merge_blocks, BlocksMergerIter};
+use to_compression_blocks::{to_compression_blocks, CompressionBlockIter};
 use compress_blocks::{compress_blocks, CompressedBlocksIter};
 use decompress_blocks::{decompress_blocks, DecompressedBlocksIter};
 
 pub trait IteratorExt : Iterator<Item = u8> + Sized {
-  fn compress(self) -> CompressedBlocksIter<BlocksMergerIter<Self>>
-    where Self: Iterator<Item = u8>
+  fn compress(self) -> CompressedBlocksIter<CompressionBlockIter<Self>>
   {
-    compress_blocks(merge_blocks(to_compression_blocks(self)))
+    compress_blocks(to_compression_blocks(self))
   }
 
   fn decompress(self) -> DecompressedBlocksIter<Self>
-    where Self: Iterator<Item = u8>
   {
     decompress_blocks(self)
   }
@@ -28,18 +24,21 @@ pub trait IteratorExt : Iterator<Item = u8> + Sized {
 impl<T> IteratorExt for T where T : Iterator<Item = u8> {}
 
 pub trait CompressionExt : io::Read + Sized {
-  fn compress(self) -> CompressedBlocksIter<BlocksMergerIter<Flatten<io::Bytes<Self>>>> {
+  fn compress(self) -> CompressedBlocksIter<CompressionBlockIter<Flatten<io::Bytes<Self>>>>
+  {
     self.bytes().flatten().compress()
   }
 
-  fn decompress(self) -> DecompressedBlocksIter<Flatten<io::Bytes<Self>>> {
+  fn decompress(self) -> DecompressedBlocksIter<Flatten<io::Bytes<Self>>>
+  {
     self.bytes().flatten().decompress()
   }
 }
 
 impl<T> CompressionExt for T where T : io::Read {}
 
-pub fn compress_file(filepath: &str) -> Result<impl Iterator<Item = u8>, Box<dyn error::Error>> {
+pub fn compress_file(filepath: &str) -> Result<impl Iterator<Item = u8>, Box<dyn error::Error>>
+{
   let path = path::Path::new(filepath);
   let file = fs::File::open(path)?;
   return Ok(file.compress());
