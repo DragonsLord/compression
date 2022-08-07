@@ -31,7 +31,6 @@ impl<T : Iterator<Item = u8>> CompressionBlockIter<T> {
         }
     }
 
-    // this algorythm mostly creates long zero bit blocks :(
     fn find_best_block(&self) -> BlockHeader {
         let mut current_best: Option<BlockHeader> = None;
         let mut current = BlockHeader { bytes_length: 1, matched_bits: 7 };
